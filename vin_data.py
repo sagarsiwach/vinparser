@@ -14,16 +14,11 @@ config = {
     "prefix": "VIN-B1024-"
 }
 
-# Embedded VIN data (default data if CSV download fails)
-EMBEDDED_VIN_DATA = """MD9B10XF5CA583412
-MD9B10XF5CA583430
-MD9B10XF6CA583431
-MD9B10XF8CA583432
-MD9B10XF2CA583434
-"""
-
 # Google Sheets CSV URL
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRdaaAAREF9TFbxxwEKkUa6QOIdeOghd_scKCMXqVzHnAVlnH7v7zkTAPN72LpCwlpTmRE-QpilAXb8/pub?gid=1256257560&single=true&output=csv"
+
+# Embedded VIN data (default data if CSV download fails)
+EMBEDDED_VIN_DATA = """MD9B10XF5CA583412,MD9B10XF5CA583430,MD9B10XF6CA583431,MD9B10XF8CA583432,MD9B10XF2CA583434,MD9B10XF3CA583453"""
 
 def initialize_config(raw_dir=None, processed_dir=None, prefix=None):
     """Initialize or update configuration"""
@@ -50,40 +45,27 @@ def load_csv_data():
 
     try:
         # Try to download the CSV first
-        csv_content = StringIO()
         try:
             response = requests.get(CSV_URL, timeout=5)
             if response.status_code == 200:
-                csv_content = StringIO(response.text)
+                csv_data = response.text
             else:
                 # Fall back to embedded data
-                csv_content = StringIO(EMBEDDED_VIN_DATA)
+                csv_data = EMBEDDED_VIN_DATA
         except:
             # Fall back to embedded data
-            csv_content = StringIO(EMBEDDED_VIN_DATA)
-
+            csv_data = EMBEDDED_VIN_DATA
+        
         # Parse the CSV content
-        reader = csv.reader(csv_content)
-        for row in reader:
-            if not row:
-                continue
-
-            # Try to find a VIN in the row
-            vin = None
-            for cell in row:
-                # Look for a 17-character VIN
-                if re.search(r'[A-Z0-9]{17}', cell, re.IGNORECASE):
-                    vin = re.search(r'[A-Z0-9]{17}', cell, re.IGNORECASE).group(0)
-                    break
-                # Look for anything that might be part of a VIN
-                elif re.search(r'[A-Z0-9]{6,}', cell, re.IGNORECASE):
-                    vin = re.search(r'[A-Z0-9]{6,}', cell, re.IGNORECASE).group(0)
-                    if len(vin) >= 6:
-                        break
-
-            if vin:
-                # Extract last 6 characters
-                result['vins'].append(vin[-6:].upper())
+        for line in csv_data.splitlines():
+            vins = line.split(',')
+            for vin in vins:
+                if re.search(r'[A-Z0-9]{17}', vin, re.IGNORECASE):
+                    # Extract last 6 characters
+                    result['vins'].append(vin[-6:].upper())
+                elif len(vin.strip()) == 6 and vin.strip().isalnum():
+                    # It's already just the 6 characters we need
+                    result['vins'].append(vin.strip().upper())
 
         # Check which VINs are already processed
         if os.path.exists(config['processed_dir']):
@@ -101,10 +83,16 @@ def load_csv_data():
 
 def extract_vin_from_filename(filename):
     """Try to extract VIN from filename"""
-    match = filename.upper().split('_')[-1] if '_' in filename else None
-    if match and re.match(r'^[A-Z0-9]{6}', match):
-        return match[:6]
-
+    # Try matching our VIN format first
+    match = re.search(r'VIN[_-]([A-Z0-9]{6})', filename, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+        
+    # Check for DONE_ prefix with VIN
+    match = re.search(r'DONE_([A-Z0-9]{6})_', filename, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    
     # Try to find any 6-digit alphanumeric sequence
     match = re.search(r'[A-Z0-9]{6}', filename.upper())
     return match.group(0) if match else None

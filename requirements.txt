@@ -1,0 +1,7 @@
+Flask>=2.0.0
+requests>=2.25.0
+loguru>=0.5.0
+rich>=10.0.0
+inquirer>=2.7.0
+pyfiglet>=0.8.0
+colorama>=0.4.4

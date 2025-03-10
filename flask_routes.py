@@ -4,12 +4,16 @@ Flask routes for VIN GUI application
 import os
 import glob
 import re
-from flask import jsonify, request, send_file, send_from_directory
-from PIL import Image
+import tempfile
+import tkinter as tk
+from tkinter import filedialog
+from flask import jsonify, request, send_file, send_from_directory, render_template, url_for
+from PIL import Image, ImageOps, ImageEnhance
 
 from vin_data import get_config, load_csv_data, extract_vin_from_filename
-from image_processor import process_image
-from templates import get_html_template
+
+# Image processing cache
+image_cache = {}
 
 def setup_routes(app):
     """Setup all Flask routes"""
@@ -17,12 +21,71 @@ def setup_routes(app):
     @app.route('/')
     def index():
         """Serve the main HTML page"""
-        return get_html_template()
+        return render_template('index.html')
+    
+    @app.route('/static/<path:path>')
+    def static_files(path):
+        """Serve static files"""
+        return send_from_directory('static', path)
+
+    @app.route('/api/select-directory')
+    def select_directory():
+        """Simulate directory selection (in real app, this would open a dialog)"""
+        dir_type = request.args.get('type', '')
+        config = get_config()
+        
+        if dir_type == 'raw':
+            # For Windows, it's better to just use a default path or a path selection that doesn't rely on Tkinter
+            # from a Flask route. Let's use the current working directory + raw_images
+            path = os.path.join(os.getcwd(), 'raw_images')
+            os.makedirs(path, exist_ok=True)
+            config['raw_dir'] = path
+            return jsonify({"success": True, "path": path})
+        
+        elif dir_type == 'processed':
+            path = os.path.join(os.getcwd(), 'processed_images')
+            os.makedirs(path, exist_ok=True)
+            config['processed_dir'] = path
+            return jsonify({"success": True, "path": path})
+        
+        return jsonify({"success": False, "message": "Invalid directory type"})
+    
+    @app.route('/api/set-directories', methods=['POST'])
+    def set_directories():
+        """Set the directories from the modal dialog"""
+        data = request.json
+        raw_dir_name = data.get('raw_dir')
+        processed_dir_name = data.get('processed_dir')
+        
+        if not raw_dir_name or not processed_dir_name:
+            return jsonify({"success": False, "message": "Missing directory paths"})
+        
+        # Create actual paths based on selected folder names
+        raw_dir = os.path.join(os.getcwd(), raw_dir_name)
+        processed_dir = os.path.join(os.getcwd(), processed_dir_name)
+        
+        # Create directories if they don't exist
+        os.makedirs(raw_dir, exist_ok=True)
+        os.makedirs(processed_dir, exist_ok=True)
+        
+        # Update config
+        config = get_config()
+        config['raw_dir'] = raw_dir
+        config['processed_dir'] = processed_dir
+        
+        return jsonify({"success": True})
 
     @app.route('/api/images')
     def get_images():
         """Get list of images in the raw directory"""
         config = get_config()
+        
+        if not config['raw_dir'] or not os.path.exists(config['raw_dir']):
+            return jsonify({
+                'images': [],
+                'processed_count': 0
+            })
+            
         image_files = sorted(
             glob.glob(os.path.join(config['raw_dir'], '*.jpg')) +
             glob.glob(os.path.join(config['raw_dir'], '*.jpeg')) +
@@ -35,6 +98,9 @@ def setup_routes(app):
             processed_count = len([f for f in os.listdir(config['processed_dir'])
                                   if f.lower().startswith(config['prefix'].lower()) and
                                   os.path.isfile(os.path.join(config['processed_dir'], f))])
+
+        # Sort files to prioritize unprocessed ones (those not starting with "DONE_")
+        image_files = sorted(image_files, key=lambda f: os.path.basename(f).startswith("DONE_"))
 
         return jsonify({
             'images': [os.path.basename(f) for f in image_files],
@@ -56,9 +122,43 @@ def setup_routes(app):
         if not os.path.exists(image_path):
             return "Image not found", 404
 
+        # Check if we have this image in cache
+        cache_key = f"{image_path}_{mode}"
+        if cache_key in image_cache and os.path.exists(image_cache[cache_key]):
+            return send_file(image_cache[cache_key])
+
         # Process image based on mode
-        processed_path = process_image(image_path, mode)
-        return send_file(processed_path)
+        try:
+            img = Image.open(image_path)
+            
+            if mode == 'original':
+                output = img
+            elif mode == 'inverted':
+                # Create high contrast inverted image
+                # Convert to grayscale
+                output = img.convert('L')
+                
+                # Increase contrast
+                enhancer = ImageEnhance.Contrast(output)
+                output = enhancer.enhance(2.0)
+                
+                # Invert colors to help with embossed text
+                output = ImageOps.invert(output)
+            else:
+                output = img
+                
+            # Create a temporary file to return
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                temp_path = tmp.name
+                output.save(temp_path, format='JPEG')
+                
+            # Add to cache
+            image_cache[cache_key] = temp_path
+            
+            return send_file(temp_path)
+        except Exception as e:
+            print(f"Error processing image: {e}")
+            return send_file(image_path)
 
     @app.route('/processed/<path:filename>')
     def serve_processed_image(filename):
@@ -109,9 +209,19 @@ def setup_routes(app):
             })
 
         try:
-            # Use original image mode for saving to processed directory
+            # Save to processed directory
             original_image = Image.open(source_path)
             original_image.save(dest_path)
+            
+            # Rename the original file to mark it as processed
+            raw_renamed = False
+            raw_new_name = ""
+            
+            if not filename.startswith("DONE_"):
+                raw_new_name = f"DONE_{vin}_{filename}"
+                new_raw_path = os.path.join(config['raw_dir'], raw_new_name)
+                os.rename(source_path, new_raw_path)
+                raw_renamed = True
 
             # Check if this VIN is in our CSV data
             csv_data = load_csv_data()
@@ -119,8 +229,10 @@ def setup_routes(app):
 
             return jsonify({
                 'success': True,
-                'message': f'Successfully renamed to {new_filename}',
-                'vin_updated': vin_updated
+                'message': f'Successfully saved as {new_filename}',
+                'vin_updated': vin_updated,
+                'raw_file_renamed': raw_renamed,
+                'raw_file_new_name': raw_new_name
             })
         except Exception as e:
             return jsonify({'success': False, 'message': f'Error renaming file: {str(e)}'})
@@ -139,20 +251,47 @@ def setup_routes(app):
             return jsonify({'success': False, 'message': 'Missing required parameters'})
 
         try:
+            raw_renamed = False
+            raw_new_name = ""
+            
             if choice == 'new':
                 # Replace existing with new
                 source_path = os.path.join(config['raw_dir'], new_file)
                 dest_path = os.path.join(config['processed_dir'], existing_file)
 
-                # Use original image mode for saving to processed directory
+                # Save the new image over the existing one
                 original_image = Image.open(source_path)
                 original_image.save(dest_path)
+                
+                # Rename the original file to mark it as processed
+                if not new_file.startswith("DONE_"):
+                    raw_new_name = f"DONE_{vin}_{new_file}"
+                    new_raw_path = os.path.join(config['raw_dir'], raw_new_name)
+                    os.rename(source_path, new_raw_path)
+                    raw_renamed = True
 
-                return jsonify({'success': True, 'message': 'Replaced existing file with new image'})
+                return jsonify({
+                    'success': True, 
+                    'message': 'Replaced existing file with new image',
+                    'raw_file_renamed': raw_renamed,
+                    'raw_file_new_name': raw_new_name
+                })
 
             elif choice == 'existing':
-                # Keep existing, do nothing
-                return jsonify({'success': True, 'message': 'Kept existing file'})
+                # Keep existing, but still mark the raw file as processed
+                if not new_file.startswith("DONE_"):
+                    source_path = os.path.join(config['raw_dir'], new_file)
+                    raw_new_name = f"DONE_{vin}_{new_file}"
+                    new_raw_path = os.path.join(config['raw_dir'], raw_new_name)
+                    os.rename(source_path, new_raw_path)
+                    raw_renamed = True
+                
+                return jsonify({
+                    'success': True, 
+                    'message': 'Kept existing file', 
+                    'raw_file_renamed': raw_renamed,
+                    'raw_file_new_name': raw_new_name
+                })
 
             else:
                 return jsonify({'success': False, 'message': 'Invalid choice'})
@@ -179,3 +318,15 @@ def setup_routes(app):
                 return jsonify({'success': False, 'message': f'File not found: {filename}'})
         except Exception as e:
             return jsonify({'success': False, 'message': f'Error deleting file: {str(e)}'})
+
+    # Clean up image cache when app shuts down
+    @app.teardown_appcontext
+    def cleanup_image_cache(exception=None):
+        """Clean up temporary image files"""
+        try:
+            for key in list(image_cache.keys()):
+                if os.path.exists(image_cache[key]):
+                    os.remove(image_cache[key])
+            image_cache.clear()
+        except Exception as e:
+            print(f"Error cleaning image cache: {e}")

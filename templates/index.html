@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-[1fr,300px] grid-rows-[auto,1fr,auto] h-screen max-h-screen overflow-hidden">
+    <!-- Header -->
+    <header class="col-span-full bg-ibm-gray-100 text-white p-4 flex justify-between items-center shadow">
+        <h1 class="text-xl font-normal">VIN Manual Entry</h1>
+        <div class="flex gap-4 text-sm text-ibm-gray-30">
+            <span id="status">Ready</span>
+            <span id="counter">0 of 0 processed</span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="p-4 overflow-y-auto flex flex-col gap-6">
+        <!-- Image Controls -->
+        <div class="flex bg-ibm-gray-80 text-white rounded overflow-hidden">
+            <div class="flex-1 p-2 text-center cursor-pointer transition-colors text-sm shortcut-button active" data-mode="original">Original (1)</div>
+            <div class="flex-1 p-2 text-center cursor-pointer transition-colors text-sm shortcut-button" data-mode="inverted">High Contrast (2)</div>
+        </div>
+
+        <!-- Image Container -->
+        <div class="bg-white border border-ibm-gray-30 rounded overflow-hidden flex flex-col">
+            <div id="current-image" class="flex items-center justify-center min-h-[400px] max-h-[calc(100vh-350px)] overflow-hidden bg-ibm-gray-90">
+                <div class="text-ibm-gray-50 text-center p-8">No images loaded</div>
+            </div>
+            <div class="flex justify-between p-3 bg-ibm-gray-20 border-t border-ibm-gray-30 text-sm">
+                <span id="image-name">No image selected</span>
+                <span id="image-count"></span>
+            </div>
+        </div>
+
+        <!-- Entry Form -->
+        <div class="bg-white border border-ibm-gray-30 rounded p-6">
+            <div class="mb-6">
+                <label for="vin-input" class="block mb-2 font-medium">Enter last 6 characters of VIN:</label>
+                <div class="flex flex-col md:flex-row gap-3">
+                    <input type="text" id="vin-input" maxlength="6" autocomplete="off" placeholder="e.g. 583696"
+                            class="flex-1 p-3 border-2 border-ibm-gray-30 rounded font-mono text-lg tracking-wider uppercase focus:outline-none focus:border-ibm-blue focus:ring-2 focus:ring-ibm-blue/20">
+                    <button id="submit-btn" class="bg-ibm-blue hover:bg-ibm-blue-dark text-white font-medium p-3 rounded transition-colors">Save & Next</button>
+                    <button id="skip-btn" class="bg-ibm-gray-20 hover:bg-ibm-gray-30 text-ibm-gray-80 font-medium p-3 rounded transition-colors">Skip</button>
+                    <button id="delete-btn" class="bg-ibm-red hover:bg-ibm-red/90 text-white font-medium p-3 rounded transition-colors">Delete (Del)</button>
+                </div>
+                <div id="message" class="mt-4 h-6 transition-all"></div>
+            </div>
+
+            <!-- Keyboard Shortcuts -->
+            <div class="border-t border-ibm-gray-30 pt-6">
+                <h3 class="text-sm mb-3 font-medium text-ibm-gray-70">Keyboard Shortcuts</h3>
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="text-xs text-ibm-gray-60"><kbd class="font-mono bg-ibm-gray-20 px-1.5 py-0.5 rounded border border-ibm-gray-30 text-xs">Enter</kbd> Save and go to next image</div>
+                    <div class="text-xs text-ibm-gray-60"><kbd class="font-mono bg-ibm-gray-20 px-1.5 py-0.5 rounded border border-ibm-gray-30 text-xs">←</kbd> Previous image</div>
+                    <div class="text-xs text-ibm-gray-60"><kbd class="font-mono bg-ibm-gray-20 px-1.5 py-0.5 rounded border border-ibm-gray-30 text-xs">→</kbd> Next image</div>
+                    <div class="text-xs text-ibm-gray-60"><kbd class="font-mono bg-ibm-gray-20 px-1.5 py-0.5 rounded border border-ibm-gray-30 text-xs">1-2</kbd> Change image view</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Sidebar -->
+    <aside class="bg-ibm-gray-20 border-l border-ibm-gray-30 overflow-y-auto flex flex-col">
+        <!-- Progress Section -->
+        <div class="p-4 border-b border-ibm-gray-30">
+            <h2 class="text-base font-medium mb-3">Affidavit Progress</h2>
+            <div class="h-3 bg-ibm-gray-30 rounded-full overflow-hidden mb-4">
+                <div class="h-full bg-ibm-blue transition-all duration-300" id="progress-bar" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between text-sm text-ibm-gray-70">
+                <span id="stats-matched">0 Matched</span>
+                <span id="stats-pending">0 Pending</span>
+            </div>
+        </div>
+
+        <!-- VIN List Section -->
+        <div class="p-4 border-b border-ibm-gray-30">
+            <h2 class="text-base font-medium mb-3">VIN Numbers</h2>
+            <div class="max-h-[200px] overflow-y-auto mt-2 border border-ibm-gray-30 rounded" id="vin-list">
+                <div class="p-4 text-ibm-gray-60 italic">Loading VINs...</div>
+            </div>
+        </div>
+
+        <!-- Images Section -->
+        <div class="p-4 border-b border-ibm-gray-30 flex-1 flex flex-col">
+            <h2 class="text-base font-medium mb-3">Images</h2>
+            <div class="flex-1 overflow-y-auto image-list" id="image-list">
+                <div class="p-4 text-ibm-gray-60 italic">Loading images...</div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Footer -->
+    <footer class="col-span-full bg-ibm-gray-20 border-t border-ibm-gray-30 p-3 text-sm text-ibm-gray-80">
+        <div class="flex justify-between">
+            <span>VIN Manual Entry v1.0.0</span>
+            <span>Files will be saved to: <code class="font-mono bg-ibm-gray-20 px-1.5 py-0.5 rounded text-xs" id="save-path">processed_images</code></span>
+        </div>
+    </footer>
+</div>
+
+<!-- Duplicate VIN Modal -->
+<div class="fixed inset-0 bg-ibm-gray-100/70 flex items-center justify-center z-50 hidden" id="duplicate-modal">
+    <div class="bg-white rounded-lg w-11/12 max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-xl">
+        <div class="bg-ibm-gray-90 text-white p-4 flex justify-between items-center">
+            <h2 class="text-xl font-normal">Duplicate VIN Detected</h2>
+            <button class="text-ibm-gray-30 hover:text-white bg-transparent border-none text-2xl cursor-pointer px-2" id="modal-close">&times;</button>
+        </div>
+        <div class="p-6 overflow-y-auto">
+            <p class="mb-4">VIN already exists in processed files. Choose which image to keep:</p>
+            <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1 text-center">
+                    <div class="border border-ibm-gray-30 rounded-md overflow-hidden mb-2" id="existing-image">
+                        <!-- Existing image will be inserted here -->
+                    </div>
+                    <div class="text-sm text-ibm-gray-70">Existing Image (1)</div>
+                </div>
+                <div class="flex-1 text-center">
+                    <div class="border border-ibm-gray-30 rounded-md overflow-hidden mb-2" id="new-image">
+                        <!-- New image will be inserted here -->
+                    </div>
+                    <div class="text-sm text-ibm-gray-70">New Image (2)</div>
+                </div>
+            </div>
+        </div>
+        <div class="p-4 bg-ibm-gray-20 flex justify-end gap-3 border-t border-ibm-gray-30">
+            <button class="bg-ibm-gray-20 hover:bg-ibm-gray-30 text-ibm-gray-80 font-medium px-5 py-3 rounded transition-colors" id="modal-cancel">Cancel (Esc)</button>
+            <button class="bg-ibm-blue hover:bg-ibm-blue-dark text-white font-medium px-5 py-3 rounded transition-colors" id="keep-existing">Keep Existing (1)</button>
+            <button class="bg-ibm-blue hover:bg-ibm-blue-dark text-white font-medium px-5 py-3 rounded transition-colors" id="keep-new">Keep New (2)</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+{% endblock %}
