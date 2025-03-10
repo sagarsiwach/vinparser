@@ -5,8 +5,6 @@ import os
 import glob
 import re
 import tempfile
-import tkinter as tk
-from tkinter import filedialog
 from flask import jsonify, request, send_file, send_from_directory, render_template, url_for
 from PIL import Image, ImageOps, ImageEnhance
 
@@ -28,52 +26,15 @@ def setup_routes(app):
         """Serve static files"""
         return send_from_directory('static', path)
 
-    @app.route('/api/select-directory')
-    def select_directory():
-        """Simulate directory selection (in real app, this would open a dialog)"""
-        dir_type = request.args.get('type', '')
-        config = get_config()
-        
-        if dir_type == 'raw':
-            # For Windows, it's better to just use a default path or a path selection that doesn't rely on Tkinter
-            # from a Flask route. Let's use the current working directory + raw_images
-            path = os.path.join(os.getcwd(), 'raw_images')
-            os.makedirs(path, exist_ok=True)
-            config['raw_dir'] = path
-            return jsonify({"success": True, "path": path})
-        
-        elif dir_type == 'processed':
-            path = os.path.join(os.getcwd(), 'processed_images')
-            os.makedirs(path, exist_ok=True)
-            config['processed_dir'] = path
-            return jsonify({"success": True, "path": path})
-        
-        return jsonify({"success": False, "message": "Invalid directory type"})
-    
-    @app.route('/api/set-directories', methods=['POST'])
-    def set_directories():
-        """Set the directories from the modal dialog"""
-        data = request.json
-        raw_dir_name = data.get('raw_dir')
-        processed_dir_name = data.get('processed_dir')
-        
-        if not raw_dir_name or not processed_dir_name:
-            return jsonify({"success": False, "message": "Missing directory paths"})
-        
-        # Create actual paths based on selected folder names
-        raw_dir = os.path.join(os.getcwd(), raw_dir_name)
-        processed_dir = os.path.join(os.getcwd(), processed_dir_name)
-        
-        # Create directories if they don't exist
-        os.makedirs(raw_dir, exist_ok=True)
-        os.makedirs(processed_dir, exist_ok=True)
-        
-        # Update config
-        config = get_config()
-        config['raw_dir'] = raw_dir
-        config['processed_dir'] = processed_dir
-        
-        return jsonify({"success": True})
+    @app.route('/api/config')
+        def get_app_config():
+            """Return the application configuration"""
+            config = get_config()
+            return jsonify({
+                'raw_dir': config['raw_dir'],
+                'processed_dir': config['processed_dir'],
+                'prefix': config['prefix']
+            })
 
     @app.route('/api/images')
     def get_images():
