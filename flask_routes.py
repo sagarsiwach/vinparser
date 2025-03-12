@@ -27,15 +27,14 @@ def setup_routes(app):
         return send_from_directory('static', path)
 
     @app.route('/api/config')
-        def get_app_config():
-            """Return the application configuration"""
-            config = get_config()
-            return jsonify({
-                'raw_dir': config['raw_dir'],
-                'processed_dir': config['processed_dir'],
-                'prefix': config['prefix']
-            })
-
+    def get_app_config():
+        """Return the application configuration"""
+        config = get_config()
+        return jsonify({
+            'raw_dir': config['raw_dir'],
+            'processed_dir': config['processed_dir'],
+            'prefix': config['prefix']
+        })
     @app.route('/api/images')
     def get_images():
         """Get list of images in the raw directory"""
